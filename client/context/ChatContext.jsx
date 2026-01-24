@@ -29,6 +29,16 @@ export const ChatProvider = ({ children }) => {
   const getMessages = async (userId) => {
     try {
       const { data } = await axios.get(`/api/messages/${userId}`);
+      console.log('📥 getMessages response:', {
+        success: data.success,
+        messageCount: data.message?.length,
+        firstMessage: data.message?.[0] ? {
+          id: data.message[0]._id,
+          isSecure: data.message[0].isSecure,
+          hasImage: !!data.message[0].image,
+          imageUrl: data.message[0].image
+        } : null
+      });
       if (data.success) {
         setMessages(Array.isArray(data.message) ? data.message : []);
       } else {
@@ -41,6 +51,16 @@ export const ChatProvider = ({ children }) => {
 
   // Send message to selected user
   const sendMessage = async (messageData) => {
+    // Debug: Log what we're sending
+    console.log('📤 ChatContext sendMessage:', {
+      isSecure: messageData.isSecure,
+      stegoType: messageData.stegoType,
+      hasMessage: !!messageData.message,
+      hasCoverImage: !!messageData.coverImage,
+      coverImageLength: messageData.coverImage?.length || 0,
+      hasPassword: !!messageData.password
+    });
+    
     try {
       const { data } = await axios.post(
         `/api/messages/send/${selectedUser._id}`,

@@ -17,11 +17,25 @@ const messageSchema = new mongoose.Schema({
     image: {
         type: String,
     },
-    seen: {
+    audio: {
+        type: String,
+    },
+    // Steganography fields
+    isSecure: {
         type: Boolean,
-        default: false
-    }
-}, {timestamps: true});
+        default: false,
+    },
+    stegoType: {
+        type: String,
+        enum: ["text-image", "image-image", "audio", "none", null],
+        default: null,
+    },
+    isEncrypted: {
+        type: Boolean,
+        default: false,
+    },
+}, { timestamps: true });
 
 const Message = mongoose.model("Message", messageSchema);
+
 export default Message;

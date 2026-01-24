@@ -5,6 +5,7 @@ import http from "http";
 import {connectDB} from "./lib/db.js";
 import userRouter from './routes/userRoutes.js';
 import messageRouter from './routes/messageRoutes.js';
+import stegoRouter from './routes/stegoRoutes.js';
 import {Server} from "socket.io";
 
 dotenv.config();
@@ -40,14 +41,16 @@ io.on("connection", (socket) => {
 
 // Middleware Setup
 app.use(cors());
-app.use(express.json({limit: "5mb"}));
+app.use(express.json({limit: "50mb"}));
+app.use(express.urlencoded({limit: "50mb", extended: true}));
 
 //Routes Setup
 app.get("/api/status", (req, res) => {
    res.send("Server is Live")
 });
 app.use("/api/auth", userRouter);
-app.use("/api/messages", messageRouter)
+app.use("/api/messages", messageRouter);
+app.use("/api/stego", stegoRouter);
 
 // Connect to Database
 await connectDB()
