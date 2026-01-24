@@ -124,9 +124,9 @@ const SecureMessageBadge = ({ message, onDecode }) => {
           )}
 
           {/* Show decoded image */}
-          {decodedContent.image && (
+          {(decodedContent.image || decodedContent.secretImage) && (
             <img
-              src={`data:image/png;base64,${decodedContent.image}`}
+              src={decodedContent.secretImage || (decodedContent.image?.startsWith('data:') ? decodedContent.image : `data:image/png;base64,${decodedContent.image}`)}
               alt="Decoded"
               className="mt-2 max-w-full rounded-lg"
             />
