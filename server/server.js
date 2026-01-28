@@ -2,11 +2,13 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import http from "http";
+import cookieParser from "cookie-parser";
 import {connectDB} from "./lib/db.js";
 import userRouter from './routes/userRoutes.js';
 import messageRouter from './routes/messageRoutes.js';
 import stegoRouter from './routes/stegoRoutes.js';
 import {Server} from "socket.io";
+import emailService from './lib/emailService.js';
 
 dotenv.config();
 
@@ -40,7 +42,11 @@ io.on("connection", (socket) => {
 })
 
 // Middleware Setup
-app.use(cors());
+app.use(cors({
+   origin: process.env.CLIENT_URL || "http://localhost:5173",
+   credentials: true // Allow cookies to be sent
+}));
+app.use(cookieParser());
 app.use(express.json({limit: "50mb"}));
 app.use(express.urlencoded({limit: "50mb", extended: true}));
 
@@ -53,7 +59,10 @@ app.use("/api/messages", messageRouter);
 app.use("/api/stego", stegoRouter);
 
 // Connect to Database
-await connectDB()
+await connectDB();
+
+// Verify Email Service Connection
+await emailService.verifyConnection();
 
 // app.listen(process.env.PORT || 3000, () => {
 //    console.log(`Server is running on port ${process.env.PORT || 3000}`);

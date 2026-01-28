@@ -1,12 +1,21 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
+import { AuthContext } from "../../context/AuthContext";
+import OtpModal from "./OtpModal";
 import toast from "react-hot-toast";
 
 const SecureMessageBadge = ({ message, onDecode }) => {
+  const { authUser } = useContext(AuthContext);
   const [isDecoding, setIsDecoding] = useState(false);
   const [decodedContent, setDecodedContent] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [password, setPassword] = useState("");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  
+  // OTP states
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [isRequestingOtp, setIsRequestingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [pendingDecodeData, setPendingDecodeData] = useState(null);
 
   // Debug log
   console.log('SecureMessageBadge message:', {
@@ -27,36 +36,120 @@ const SecureMessageBadge = ({ message, onDecode }) => {
       return;
     }
 
-    setIsDecoding(true);
+    // Request OTP for decoding
+    setIsRequestingOtp(true);
     try {
-      const result = await onDecode(message, password);
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/stego/request-decode-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include'
+      });
 
-      // Check for error strings in text even if success is true
-      const isErrorText = result.text && (
-        result.text.startsWith("Error") ||
-        result.text.startsWith("Incorrect") ||
-        result.text.startsWith("Hidden message") ||
-        result.text.startsWith("🔒") ||
-        result.text.startsWith("❌")
-      );
-
-      if (result.success && !isErrorText) {
-        setDecodedContent(result);
-        setShowPasswordModal(false);
-        toast.success("Message decoded successfully!");
-      } else {
-        // Use result.message or result.text or default error
-        const errorMsg = result.message || (isErrorText ? result.text : null) || result.error || "Decoding failed";
-        toast.error(errorMsg);
-        // Clear content if it was error
-        setDecodedContent(null);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to send OTP');
       }
+
+      // Store decode data for later use
+      setPendingDecodeData({
+        message,
+        password
+      });
+
+      setShowOtpModal(true);
+      setShowPasswordModal(false);
+      toast.success('OTP sent to your registered email');
+
     } catch (error) {
-      console.error("Decode error:", error);
-      toast.error("Failed to decode message");
+      toast.error(error.message || 'Failed to send OTP');
     } finally {
-      setIsDecoding(false);
+      setIsRequestingOtp(false);
     }
+  };
+
+  // Handle OTP verification and decoding
+  const handleOtpVerify = async (otp) => {
+    setIsVerifyingOtp(true);
+    try {
+      console.log('🔍 Starting OTP verification:', {
+        otp,
+        hasPassword: !!pendingDecodeData?.password,
+        hasMessage: !!pendingDecodeData?.message,
+        hasImage: !!pendingDecodeData?.message?.image,
+        imageUrl: pendingDecodeData?.message?.image
+      });
+
+      // Create FormData for the request
+      const formData = new FormData();
+      formData.append('otp', otp);
+      
+      if (pendingDecodeData.password) {
+        formData.append('decryptionPassword', pendingDecodeData.password);
+      }
+
+      // Convert image URL to blob and append
+      if (pendingDecodeData.message.image) {
+        console.log('📥 Fetching image from:', pendingDecodeData.message.image);
+        const imageResponse = await fetch(pendingDecodeData.message.image);
+        
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+        }
+        
+        const blob = await imageResponse.blob();
+        console.log('✅ Image fetched, size:', blob.size, 'bytes, type:', blob.type);
+        
+        // Ensure the blob is of type image/png
+        const pngBlob = blob.type.includes('image') ? blob : new Blob([blob], { type: 'image/png' });
+        formData.append('stegoImage', pngBlob, 'stego.png');
+        
+        console.log('✅ Image appended to FormData as stegoImage');
+      } else {
+        console.error('❌ No image found in message');
+        throw new Error('No image found in message');
+      }
+
+      console.log('📤 Sending decode request...');
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/stego/verify-decode-otp`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      console.log('📨 Server response:', result);
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to decode message');
+      }
+
+      // Success - show decoded content
+      setDecodedContent({
+        text: result.secretMessage,
+        success: true
+      });
+      
+      setShowOtpModal(false);
+      setPendingDecodeData(null);
+      
+      toast.success("🔓 Message decoded successfully!");
+
+    } catch (error) {
+      console.error('❌ Decode error:', error);
+      toast.error(error.message || 'Failed to verify OTP');
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  // Handle OTP modal close
+  const handleOtpModalClose = () => {
+    setShowOtpModal(false);
+    setPendingDecodeData(null);
+    setIsVerifyingOtp(false);
   };
 
   const handlePasswordSubmit = (e) => {
@@ -96,15 +189,15 @@ const SecureMessageBadge = ({ message, onDecode }) => {
       {!decodedContent ? (
         <button
           onClick={handleDecode}
-          disabled={isDecoding}
+          disabled={isRequestingOtp || isVerifyingOtp}
           className="mt-2 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 
                      text-white px-4 py-2 rounded-lg text-sm transition-colors
                      disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isDecoding ? (
+          {isRequestingOtp ? (
             <>
               <span className="animate-spin">⏳</span>
-              Decoding...
+              Requesting OTP...
             </>
           ) : (
             <>
@@ -180,18 +273,18 @@ const SecureMessageBadge = ({ message, onDecode }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={!password || isDecoding}
+                  disabled={!password || isRequestingOtp}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white 
                              py-2.5 rounded-lg transition-colors disabled:opacity-50
                              disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  {isDecoding ? (
+                  {isRequestingOtp ? (
                     <>
                       <span className="animate-spin">⏳</span>
-                      Decoding...
+                      Requesting OTP...
                     </>
                   ) : (
-                    "🔓 Decode"
+                    "🔓 Request OTP"
                   )}
                 </button>
               </div>
@@ -199,6 +292,16 @@ const SecureMessageBadge = ({ message, onDecode }) => {
           </div>
         </div>
       )}
+
+      {/* OTP Modal */}
+      <OtpModal
+        isOpen={showOtpModal}
+        onClose={handleOtpModalClose}
+        onVerify={handleOtpVerify}
+        isLoading={isVerifyingOtp}
+        purpose="DECODE"
+        email={authUser?.email}
+      />
     </div>
   );
 };

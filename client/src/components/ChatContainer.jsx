@@ -3,8 +3,9 @@ import assets from '../assets/assets'
 import { formatMessageTime } from '../lib/utils'
 import { ChatContext } from '../../context/ChatContext'
 import { AuthContext } from '../../context/AuthContext'
-import SecureSendPanel from './SecureSendPanel'
+import SecureToolsDrawer from './SecureToolsDrawer'
 import SecureMessageBadge from './SecureMessageBadge'
+import { Lock, Send, Image as ImageIcon, Paperclip } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const ChatContainer = () => {
@@ -13,7 +14,7 @@ const ChatContainer = () => {
 
   const scrollEnd = useRef()
   const [input, setInput] = useState('')
-  const [securePanelExpanded, setSecurePanelExpanded] = useState(false)
+  const [secureDrawerOpen, setSecureDrawerOpen] = useState(false)
 
   // Handle sending a message
   const handleSendMessage = async (e) => {
@@ -27,16 +28,46 @@ const ChatContainer = () => {
   // Handle sending a secure message
   const handleSecureSend = async (secureData) => {
     try {
-      await sendMessage(secureData)
-      toast.success('Secure message sent!')
+      console.log('🔒 handleSecureSend called with:', {
+        hasImage: !!secureData.image,
+        isBlob: secureData.image instanceof Blob,
+        isSecure: secureData.isSecure,
+        stegoType: secureData.stegoType
+      });
+
+      // If image is a Blob, convert it to base64
+      if (secureData.image && secureData.image instanceof Blob) {
+        console.log('📦 Converting Blob to base64...');
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const messageData = {
+            ...secureData,
+            image: reader.result // base64 string
+          };
+          console.log('✅ Blob converted, sending message with base64 image');
+          await sendMessage(messageData);
+          toast.success('Secure message sent!');
+        };
+        reader.readAsDataURL(secureData.image);
+      } else {
+        await sendMessage(secureData);
+        toast.success('Secure message sent!');
+      }
     } catch (error) {
-      toast.error('Failed to send secure message')
+      console.error('❌ Error sending secure message:', error);
+      toast.error('Failed to send secure message');
     }
   }
 
   // 🔓 Handle decoding a secure message
   const handleDecodeMessage = async (message, password = null) => {
     try {
+      console.log('🔓 Starting decode for message:', {
+        type: message.stegoType,
+        hasImage: !!message.image,
+        hasPassword: !!password
+      })
+
       let endpoint = ''
       let body = {}
 
@@ -58,27 +89,31 @@ const ChatContainer = () => {
           throw new Error('Unknown stego type')
       }
 
-      // Get token from localStorage
-      const token = localStorage.getItem('token')
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'
+
+      console.log(`📤 Making request to: ${backendUrl}${endpoint}`)
 
       const response = await fetch(`${backendUrl}${endpoint}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'token': token
+          'Content-Type': 'application/json'
         },
+        credentials: 'include', // Send cookies with request
         body: JSON.stringify(body),
       })
 
       const data = await response.json()
+      console.log('📥 Decode response:', { success: data.success, hasText: !!data.text, hasError: !!data.error })
 
       if (!response.ok) {
-        throw new Error(data.error || 'Decoding failed')
+        const errorMsg = data.error || data.message || 'Decoding failed'
+        console.error('❌ Decode request failed:', errorMsg)
+        throw new Error(errorMsg)
       }
 
       // Respect backend success flag
       if (data.success === false) {
+        console.warn('⚠️ Backend marked decode as unsuccessful:', data.message || data.error)
         return {
           success: false,
           error: data.message || data.error || 'Decoding failed',
@@ -86,6 +121,7 @@ const ChatContainer = () => {
         }
       }
 
+      console.log('✅ Decode successful')
       return {
         success: true,
         text: data.text || null,
@@ -93,7 +129,10 @@ const ChatContainer = () => {
         secretImage: data.secretImage || null, // Handle image-image result
       }
     } catch (error) {
-      console.error('Decode error:', error)
+      console.error('❌ Decode error:', {
+        message: error.message,
+        stack: error.stack
+      })
       return {
         success: false,
         error: error.message || 'Failed to decode message',
@@ -196,38 +235,64 @@ const ChatContainer = () => {
         <div ref={scrollEnd}></div>
       </div>
 
-      {/* Secure Send Panel */}
-      <SecureSendPanel
-        isExpanded={securePanelExpanded}
-        onToggle={() => setSecurePanelExpanded(!securePanelExpanded)}
-        onSecureSend={handleSecureSend}
-      />
-
-      {/* Regular Input */}
-      {!securePanelExpanded && (
+      {/* Message Input Area - Modern Design */}
+      <div className="border-t border-white/10 bg-black/20 backdrop-blur-sm">
         <form onSubmit={handleSendMessage} className="flex items-center gap-3 p-4">
+          {/* Secure Tools Button */}
+          <button
+            type="button"
+            onClick={() => setSecureDrawerOpen(true)}
+            className="p-3 bg-violet-500/20 hover:bg-violet-500/30 rounded-xl border border-violet-500/40 
+                     transition-all group relative"
+            title="Secure Send Tools"
+          >
+            <Lock className="w-5 h-5 text-violet-400 group-hover:text-violet-300" />
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-violet-500 rounded-full animate-pulse" />
+          </button>
+
+          {/* Text Input */}
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type a message..."
-            className="flex-1 bg-white/10 text-white px-4 py-2 rounded-full 
-                       focus:outline-none focus:ring-2 focus:ring-violet-500"
+            className="flex-1 bg-white/10 text-white px-5 py-3 rounded-2xl 
+                     focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:bg-white/15
+                     placeholder-gray-500 transition-all"
           />
-          <label className="cursor-pointer">
+
+          {/* Image Upload Button */}
+          <label className="p-3 bg-white/5 hover:bg-white/10 rounded-xl cursor-pointer transition-all">
             <input
               type="file"
               accept="image/*"
               onChange={handleSendImage}
               className="hidden"
             />
-            <img src={assets.gallery_icon} alt="" className="w-6" />
+            <ImageIcon className="w-5 h-5 text-gray-400" />
           </label>
-          <button type="submit">
-            <img src={assets.send_button} alt="" className="w-8" />
+
+          {/* Send Button */}
+          <button
+            type="submit"
+            disabled={!input.trim()}
+            className={`p-3 rounded-xl transition-all flex items-center justify-center
+              ${input.trim()
+                ? 'bg-gradient-to-r from-violet-500 to-purple-500 hover:shadow-lg hover:shadow-violet-500/50'
+                : 'bg-gray-600/20 cursor-not-allowed'
+              }`}
+          >
+            <Send className={`w-5 h-5 ${input.trim() ? 'text-white' : 'text-gray-500'}`} />
           </button>
         </form>
-      )}
+      </div>
+
+      {/* Secure Tools Drawer */}
+      <SecureToolsDrawer
+        isOpen={secureDrawerOpen}
+        onClose={() => setSecureDrawerOpen(false)}
+        onSecureSend={handleSecureSend}
+      />
     </div>
   ) : (
     <div className="flex flex-col items-center justify-center h-full text-white">
